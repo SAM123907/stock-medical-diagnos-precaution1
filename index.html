@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d6efd">
+<title>StockMédical — Gestion de stock</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root { --blue:#0d6efd; --red:#dc3545; --green:#198754; --orange:#fd7e14; --bg:#f4f6f9; }
+  * { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',Roboto,Arial,sans-serif; }
+  body { background:var(--bg); min-height:100vh; }
+  header { background:var(--blue); color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; position:sticky; top:0; z-index:10; }
+  header h1 { font-size:1.2rem; }
+  header .user { display:flex; align-items:center; gap:12px; font-size:.9rem; flex-wrap:wrap; }
+  .badge { background:var(--red); border-radius:20px; padding:2px 10px; font-size:.8rem; font-weight:bold; }
+  .badge.ok { background:var(--green); }
+  button { cursor:pointer; border:none; border-radius:8px; padding:9px 16px; font-size:.9rem; font-weight:600; }
+  .btn-blue { background:var(--blue); color:#fff; } .btn-red { background:var(--red); color:#fff; }
+  .btn-green { background:var(--green); color:#fff; } .btn-orange { background:var(--orange); color:#fff; }
+  .btn-gray { background:#6c757d; color:#fff; }
+  main { max-width:1100px; margin:0 auto; padding:20px; }
+  .card { background:#fff; border-radius:12px; padding:22px; box-shadow:0 2px 8px rgba(0,0,0,.08); margin-bottom:20px; }
+  input, select { width:100%; padding:10px; border:1px solid #ccc; border-radius:8px; font-size:.95rem; margin-bottom:10px; }
+  label { font-size:.85rem; font-weight:600; color:#444; display:block; margin-bottom:4px; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { padding:10px; text-align:left; border-bottom:1px solid #eee; }
+  th { background:#f8f9fa; }
+  .pill { padding:3px 10px; border-radius:20px; font-size:.78rem; font-weight:bold; color:#fff; }
+  .pill.rupture { background:var(--red); } .pill.faible { background:var(--orange); } .pill.ok { background:var(--green); }
+  .row-actions button { padding:5px 10px; font-size:.78rem; margin-right:5px; }
+  .alert-banner { background:#f8d7da; color:#842029; border-radius:10px; padding:12px 16px; margin-bottom:16px; font-weight:600; display:none; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  .tabs button { background:#e9ecef; color:#333; }
+  .tabs button.active { background:var(--blue); color:#fff; }
+  .hidden { display:none !important; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media(max-width:600px){ .grid2{grid-template-columns:1fr;} table{font-size:.8rem;} th,td{padding:6px;} }
+  #login-box { max-width:400px; margin:60px auto; }
+  .msg { font-size:.85rem; margin-top:8px; }
+  .msg.err { color:var(--red); } .msg.ok { color:var(--green); }
+</style>
+</head>
+<body>
+
+<!-- ÉCRAN DE CONNEXION -->
+<div id="login-screen">
+  <div class="card" id="login-box">
+    <h2 style="margin-bottom:16px;">🏥 StockMédical</h2>
+    <div class="tabs">
+      <button id="tab-login" class="active btn-blue" onclick="showAuth('login')">Connexion</button>
+      <button id="tab-register" onclick="showAuth('register')">Créer un compte</button>
+    </div>
+    <form id="auth-form">
+      <label>Email</label>
+      <input type="email" id="auth-email" required placeholder="votre@email.com">
+      <label>Mot de passe</label>
+      <input type="password" id="auth-pass" required minlength="6" placeholder="6 caractères min.">
+      <button type="submit" class="btn-blue" style="width:100%;" id="auth-btn">Se connecter</button>
+      <div class="msg" id="auth-msg"></div>
+    </form>
+  </div>
+</div>
+
+<!-- APPLICATION -->
+<div id="app" class="hidden">
+  <header>
+    <h1>🏥 StockMédical</h1>
+    <div class="user">
+      <span id="alert-badge" class="badge ok">0 alerte</span>
+      <span id="user-email"></span>
+      <span id="admin-tag" class="pill ok hidden">Admin</span>
+      <button class="btn-gray" onclick="logout()">Déconnexion</button>
+    </div>
+  </header>
+  <main>
+    <div class="alert-banner" id="alert-banner"></div>
+
+    <div class="tabs">
+      <button class="active" data-tab="stock" onclick="switchTab('stock',this)">📦 Stock</button>
+      <button data-tab="add" onclick="switchTab('add',this)">➕ Ajouter un produit</button>
+      <button data-tab="history" onclick="switchTab('history',this)">🕘 Historique</button>
+      <button data-tab="admin" id="tab-admin" onclick="switchTab('admin',this)">👤 Utilisateurs</button>
+    </div>
+
+    <!-- ONGLET STOCK -->
+    <div id="tab-stock">
+      <div class="card">
+        <input type="search" id="search" placeholder="🔍 Rechercher un produit, une référence..." oninput="renderStock()">
+        <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Produit</th><th>Référence</th><th>Catégorie</th><th>Quantité</th><th>Seuil</th><th>Statut</th><th>Actions</th></tr></thead>
+          <tbody id="stock-body"></tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ONGLET AJOUTER -->
+    <div id="tab-add" class="hidden">
+      <div class="card">
+        <h3 style="margin-bottom:14px;">Nouveau produit</h3>
+        <form onsubmit="addProduct(event)">
+          <div class="grid2">
+            <div><label>Nom du produit *</label><input id="p-name" required placeholder="Gants chirurgicaux"></div>
+            <div><label>Référence *</label><input id="p-ref" required placeholder="GS-001"></div>
+            <div><label>Catégorie</label><input id="p-cat" placeholder="Consommables"></div>
+            <div><label>Quantité initiale *</label><input id="p-qty" type="number" min="0" required value="0"></div>
+            <div><label>Seuil d'alerte *</label><input id="p-threshold" type="number" min="0" required value="10"></div>
+          </div>
+          <button class="btn-green" type="submit">💾 Enregistrer</button>
+          <div class="msg" id="add-msg"></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ONGLET HISTORIQUE -->
+    <div id="tab-history" class="hidden">
+      <div class="card">
+        <h3 style="margin-bottom:14px;">Historique des mouvements</h3>
+        <div style="overflow-x:auto;">
+        <table>
+          <thead><tr><th>Date</th><th>Produit</th><th>Mouvement</th><th>Par</th><th>Note</th></tr></thead>
+          <tbody id="history-body"></tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ONGLET ADMIN -->
+    <div id="tab-admin" class="hidden">
+      <div class="card">
+        <h3 style="margin-bottom:12px;">👤 Gestion des utilisateurs</h3>
+        <p style="font-size:.9rem;color:#555;margin-bottom:14px;">
+          Vous êtes administrateur. Pour créer un compte pour un employé :
+          allez dans votre tableau de bord Supabase → <b>Authentication → Users → Add user → Create new user</b>,
+          puis envoyez-lui ses identifiants. Vous seul pouvez créer des comptes.
+        </p>
+        <table>
+          <thead><tr><th>Email</th><th>Rôle</th></tr></thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ================= CONFIGURATION ================= */
+/* Remplacez ces deux valeurs par celles de VOTRE projet Supabase (voir le guide GUIDE-INSTALLATION.md) */
+const SUPABASE_URL = "https://jfgunmeuppuklfpbiciz.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpmZ3VubWV1cHB1a2xmcGJpY2l6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEwNzIxODgsImV4cCI6MjEwNjY0ODE4OH0.eio9QmLD0Kld-oBfSahDRrFD30ioS1gO3sZHptIBFsE";
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUser = null, isAdmin = false, products = [], movements = [], prevAlerts = {};
+
+/* ================= AUTH ================= */
+function showAuth(mode){
+  document.getElementById('tab-login').classList.toggle('active', mode==='login');
+  document.getElementById('tab-register').classList.toggle('active', mode==='register');
+  document.getElementById('auth-btn').textContent = mode==='login' ? 'Se connecter' : 'Créer mon compte';
+  document.getElementById('auth-msg').textContent = '';
+  document.getElementById('auth-form').onsubmit = mode==='login' ? login : register;
+}
+async function login(e){
+  e.preventDefault();
+  const { data, error } = await sb.auth.signInWithPassword({
+    email: document.getElementById('auth-email').value.trim(),
+    password: document.getElementById('auth-pass').value
+  });
+  if (error) return msg('auth-msg', error.message, 'err');
+}
+async function register(e){
+  e.preventDefault();
+  const { data, error } = await sb.auth.signUp({
+    email: document.getElementById('auth-email').value.trim(),
+    password: document.getElementById('auth-pass').value
+  });
+  if (error) return msg('auth-msg', error.message, 'err');
+  msg('auth-msg', 'Compte créé ! Si la confirmation email est activée, vérifiez votre boîte mail.', 'ok');
+}
+async function logout(){ await sb.auth.signOut(); location.reload(); }
+
+sb.auth.onAuthStateChange(async (event, session) => {
+  if (session) { currentUser = session.user; await initApp(); }
+});
+
+/* ================= APP ================= */
+async function initApp(){
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('user-email').textContent = currentUser.email;
+
+  // Le premier compte devient admin automatiquement
+  const { data: admins } = await sb.from('settings').select('value').eq('key','admin_email');
+  if (!admins || admins.length === 0) {
+    await sb.from('settings').insert({ key:'admin_email', value: currentUser.email });
+    isAdmin = true;
+  } else {
+    isAdmin = admins[0].value === currentUser.email;
+  }
+  if (!isAdmin) document.getElementById('tab-admin').style.display = 'none';
+  else {
+    document.getElementById('admin-tag').classList.remove('hidden');
+    renderUsers();
+  }
+  await loadAll();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+}
+
+async function renderUsers(){
+  const { data } = await sb.from('settings').select('value').eq('key','admin_email');
+  const adminEmail = data && data[0] ? data[0].value : '—';
+  document.getElementById('users-body').innerHTML =
+    `<tr><td>${adminEmail}</td><td><span class="pill ok">Administrateur</span></td></tr>`;
+}
+
+async function loadAll(){
+  const [{ data: p }, { data: m }] = await Promise.all([
+    sb.from('products').select('*').order('name'),
+    sb.from('movements').select('*').order('created_at', { ascending:false }).limit(200)
+  ]);
+  products = p || []; movements = m || [];
+  renderStock(); renderHistory(); checkAlerts();
+}
+
+/* ================= STOCK ================= */
+function statusOf(p){
+  if (p.quantity <= 0) return ['Rupture','rupture'];
+  if (p.quantity <= p.threshold) return ['Stock faible','faible'];
+  return ['OK','ok'];
+}
+function renderStock(){
+  const q = (document.getElementById('search').value || '').toLowerCase();
+  const rows = products.filter(p =>
+    p.name.toLowerCase().includes(q) || (p.reference||'').toLowerCase().includes(q) || (p.category||'').toLowerCase().includes(q)
+  );
+  document.getElementById('stock-body').innerHTML = rows.map(p => {
+    const [label, cls] = statusOf(p);
+    return `<tr>
+      <td><b>${esc(p.name)}</b></td><td>${esc(p.reference)}</td><td>${esc(p.category||'—')}</td>
+      <td><b>${p.quantity}</b></td><td>${p.threshold}</td>
+      <td><span class="pill ${cls}">${label}</span></td>
+      <td class="row-actions">
+        <button class="btn-green" onclick="changeQty(${p.id},1)">+1</button>
+        <button class="btn-orange" onclick="changeQty(${p.id},-1)">−1</button>
+        <button class="btn-blue" onclick="editProduct(${p.id})">✏️ Modifier</button>
+        <button class="btn-red" onclick="delProduct(${p.id})">🗑 Supprimer</button>
+      </td></tr>`;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;color:#888;">Aucun produit</td></tr>';
+}
+
+async function addProduct(e){
+  e.preventDefault();
+  const item = {
+    name: document.getElementById('p-name').value.trim(),
+    reference: document.getElementById('p-ref').value.trim(),
+    category: document.getElementById('p-cat').value.trim(),
+    quantity: parseInt(document.getElementById('p-qty').value)||0,
+    threshold: parseInt(document.getElementById('p-threshold').value)||0
+  };
+  const { data, error } = await sb.from('products').insert(item).select();
+  if (error) return msg('add-msg', error.message, 'err');
+  await logMove(data[0].id, item.quantity, 'initial', 'Création du produit');
+  msg('add-msg', 'Produit enregistré !', 'ok');
+  e.target.reset(); document.getElementById('p-qty').value = 0; document.getElementById('p-threshold').value = 10;
+  await loadAll();
+}
+
+async function changeQty(id, delta){
+  const p = products.find(x => x.id === id); if (!p) return;
+  const newQty = Math.max(0, p.quantity + delta);
+  const { error } = await sb.from('products').update({ quantity: newQty }).eq('id', id);
+  if (error) return alert(error.message);
+  await logMove(id, delta, delta > 0 ? 'entrée' : 'sortie', 'Ajustement rapide');
+  await loadAll();
+}
+
+async function editProduct(id){
+  const p = products.find(x => x.id === id); if (!p) return;
+  const name = prompt('Nom du produit :', p.name); if (name === null) return;
+  const ref = prompt('Référence :', p.reference) ?? p.reference;
+  const cat = prompt('Catégorie :', p.category || '') ?? p.category;
+  const qty = parseInt(prompt('Quantité en stock :', p.quantity)); if (isNaN(qty)) return;
+  const thr = parseInt(prompt("Seuil d'alerte :", p.threshold)); if (isNaN(thr)) return;
+  const { error } = await sb.from('products').update({
+    name: name.trim(), reference: ref.trim(), category: cat.trim(), quantity: qty, threshold: thr
+  }).eq('id', id);
+  if (error) return alert(error.message);
+  await logMove(id, qty - p.quantity, 'ajustement', 'Modification fiche produit');
+  await loadAll();
+}
+
+async function delProduct(id){
+  const p = products.find(x => x.id === id);
+  if (!confirm(`⚠️ Supprimer définitivement « ${p.name} » ?`)) return;
+  await sb.from('movements').delete().eq('product_id', id);
+  const { error } = await sb.from('products').delete().eq('id', id);
+  if (error) return alert(error.message);
+  await loadAll();
+}
+
+/* ================= HISTORIQUE & ALERTES ================= */
+async function logMove(productId, delta, type, note){
+  await sb.from('movements').insert({ product_id: productId, user_email: currentUser.email, delta, type, note });
+}
+function renderHistory(){
+  document.getElementById('history-body').innerHTML = movements.map(m => {
+    const p = products.find(x => x.id === m.product_id);
+    return `<tr><td>${new Date(m.created_at).toLocaleString('fr-FR')}</td>
+      <td>${esc(p ? p.name : 'produit supprimé')}</td>
+      <td>${m.delta > 0 ? '+' : ''}${m.delta} (${m.type})</td>
+      <td>${esc(m.user_email)}</td><td>${esc(m.note||'')}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:#888;">Aucun mouvement</td></tr>';
+}
+
+function checkAlerts(){
+  const alerts = products.filter(p => p.quantity <= p.threshold);
+  const ruptures = alerts.filter(p => p.quantity <= 0);
+  const badge = document.getElementById('alert-badge');
+  badge.textContent = `${alerts.length} alerte${alerts.length>1?'s':''}`;
+  badge.classList.toggle('ok', alerts.length === 0);
+  const banner = document.getElementById('alert-banner');
+  if (alerts.length){
+    banner.style.display = 'block';
+    banner.innerHTML = `⚠️ <b>${ruptures.length} rupture(s) de stock</b> — ${alerts.length} produit(s) à commander : ` +
+      alerts.map(p => `${esc(p.name)} (${p.quantity} restant${p.quantity>1?'s':''})`).join(', ');
+  } else banner.style.display = 'none';
+
+  // Notification navigateur pour les nouvelles ruptures
+  if ('Notification' in window && Notification.permission === 'granted'){
+    ruptures.forEach(p => {
+      if (!prevAlerts[p.id]) new Notification('🔴 Rupture de stock', { body: `${p.name} — stock épuisé !` });
+    });
+  }
+  prevAlerts = Object.fromEntries(ruptures.map(p => [p.id, true]));
+  if ('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+}
+
+/* ================= UI HELPERS ================= */
+function switchTab(tab, btn){
+  ['stock','add','history','admin'].forEach(t =>
+    document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function msg(id, text, cls){ const el = document.getElementById(id); el.textContent = text; el.className = 'msg ' + cls; }
+function esc(s){ return (s??'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+</body>
+</html>
